@@ -1,86 +1,346 @@
-# Votação
+# Sistema de Votação
 
-## Objetivo
+## Visão geral da solução
 
-No cooperativismo, cada associado possui um voto e as decisões são tomadas em assembleias, por votação. Imagine que você deve criar uma solução we para gerenciar e participar dessas sessões de votação.
-Essa solução deve ser executada na nuvem e promover as seguintes funcionalidades através de uma API REST / Front:
+Solução fullstack para assembleias de cooperativismo com:
 
-- Cadastrar uma nova pauta
-- Abrir uma sessão de votação em uma pauta (a sessão de votação deve ficar aberta por
-  um tempo determinado na chamada de abertura ou 1 minuto por default)
-- Receber votos dos associados em pautas (os votos são apenas 'Sim'/'Não'. Cada associado
-  é identificado por um id único e pode votar apenas uma vez por pauta)
-- Contabilizar os votos e dar o resultado da votação na pauta
+- cadastro de pautas
+- abertura de sessões de votação com duração configurável
+- registro de votos `SIM` e `NÃO`
+- restrição de um voto por associado em cada pauta
+- apuração do resultado por pauta
+- integração fake com validação externa de CPF
 
-Para fins de exercício, a segurança das interfaces pode ser abstraída e qualquer chamada para as interfaces pode ser considerada como autorizada. A solução deve ser construída em java com Spring-boot e Angular/React conforme orientação, mas os frameworks e bibliotecas são de livre escolha (desde que não infrinja direitos de uso).
+O projeto foi dividido em:
 
-É importante que as pautas e os votos sejam persistidos e que não sejam perdidos com o restart da aplicação.
+- `backend`: API REST em Spring Boot
+- `frontend`: interface React para consumir os endpoints
+- `db/sqlserver`: scripts SQL para subir a estrutura no SQL Server
 
-## Como proceder
+Observação: a persistência principal da aplicação é feita em SQL Server. O H2 permanece apenas nos testes automatizados, para manter a suíte rápida e isolada.
 
-Por favor, realize o FORK desse repositório e implemente sua solução no FORK em seu repositório GItHub, ao final, notifique da conclusão para que possamos analisar o código implementado.
+## Tecnologias utilizadas
 
-Lembre de deixar todas as orientações necessárias para executar o seu código.
+### Backend
 
-### Tarefas bônus
+- Java 21
+- Spring Boot 3
+- Spring Web
+- Spring Data JPA
+- Bean Validation
+- Microsoft SQL Server JDBC Driver
 
-- Tarefa Bônus 1 - Integração com sistemas externos
-  - Criar uma Facade/Client Fake que retorna aleátoriamente se um CPF recebido é válido ou não.
-  - Caso o CPF seja inválido, a API retornará o HTTP Status 404 (Not found). Você pode usar geradores de CPF para gerar CPFs válidos
-  - Caso o CPF seja válido, a API retornará se o usuário pode (ABLE_TO_VOTE) ou não pode (UNABLE_TO_VOTE) executar a operação. Essa operação retorna resultados aleatórios, portanto um mesmo CPF pode funcionar em um teste e não funcionar no outro.
+### Frontend
 
+- React 18
+- Vite
+- CSS puro
+
+### Qualidade
+
+- JUnit 5
+- Spring Boot Test
+- MockMvc
+- Maven Checkstyle Plugin
+- ESLint
+
+## Decisões técnicas adotadas
+
+- Arquitetura simples em camadas: `controller`, `service`, `repository`, `domain`, `dto`
+- Versionamento de API por URL: `/api/v1/...`
+- Tratamento centralizado de exceções com respostas previsíveis
+- Restrição de voto único por pauta no serviço e no banco
+- Apuração performática usando agregação no banco em vez de carregar todos os votos em memória
+- Logs de negócio nos fluxos principais
+- Frontend simples, focado apenas na operação do sistema
+- SQL Server como persistência padrão da aplicação
+- H2 restrito aos testes automatizados
+
+## Pré-requisitos
+
+- Docker Desktop
+- Java 21
+- Maven 3.9+
+- Node.js 18+ com `npm`
+
+Valide o ambiente antes de começar:
+
+```bash
+docker --version
+java -version
+mvn --version
+node -v
+npm -v
 ```
-// CPF Ok para votar
+
+Observação para Windows:
+
+- em `PowerShell` ou `cmd`, use `mvn.cmd`
+- no `Git Bash`, `mvn` pode falhar dependendo da instalação local; se isso acontecer, use `mvn.cmd`
+
+## Como subir o SQL Server com Docker
+
+Na raiz do projeto:
+
+```bash
+docker compose up -d
+```
+
+Isso sobe um SQL Server 2022 com:
+
+- host: `localhost`
+- porta: `1433`
+- usuário: `sa`
+- senha: `SqlServer@123`
+
+Para verificar se o container subiu:
+
+```bash
+docker ps
+```
+
+Container esperado:
+
+- `votacao-sqlserver`
+
+Se quiser acompanhar a inicialização:
+
+```bash
+docker logs -f votacao-sqlserver
+```
+
+Espere o banco terminar a inicialização antes de seguir para o schema.
+
+## Como executar os scripts SQL
+
+Os scripts estão em:
+
+- `db/sqlserver/01_schema.sql`
+- `db/sqlserver/02_seed.sql`
+
+Observações importantes:
+
+- o backend usa `ddl-auto: validate`
+- isso significa que o schema precisa existir antes de subir a aplicação
+- o script `01_schema.sql` recria as tabelas; se você rodar novamente, os dados atuais serão perdidos
+
+### PowerShell
+
+Execução do schema:
+
+```powershell
+Get-Content .\db\sqlserver\01_schema.sql | docker exec -i votacao-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "SqlServer@123" -C -i /dev/stdin
+```
+
+Execução do seed opcional:
+
+```powershell
+Get-Content .\db\sqlserver\02_seed.sql | docker exec -i votacao-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "SqlServer@123" -C -i /dev/stdin
+```
+
+### Git Bash
+
+No `Git Bash`, use `bash -lc` para evitar conversão incorreta de caminhos:
+
+```bash
+export MSYS2_ARG_CONV_EXCL="*"
+cat ./db/sqlserver/01_schema.sql | docker exec -i votacao-sqlserver bash -lc '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "SqlServer@123" -C -i /dev/stdin'
+```
+
+Seed opcional:
+
+```bash
+cat ./db/sqlserver/02_seed.sql | docker exec -i votacao-sqlserver bash -lc '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "SqlServer@123" -C -i /dev/stdin'
+```
+
+Se quiser validar se o banco respondeu:
+
+```bash
+docker exec -i votacao-sqlserver bash -lc '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "SqlServer@123" -C -Q "SELECT name FROM sys.databases"'
+```
+
+## Como rodar o backend
+
+Depois de subir o Docker e executar o schema SQL:
+
+### PowerShell ou CMD
+
+```powershell
+cd backend
+mvn.cmd spring-boot:run
+```
+
+### Git Bash
+
+```bash
+cd backend
+mvn.cmd spring-boot:run
+```
+
+Se o `mvn` do seu ambiente estiver corretamente configurado, você também pode usar:
+
+```bash
+mvn spring-boot:run
+```
+
+Aplicação disponível em:
+
+- `http://localhost:8080`
+
+Configuração usada:
+
+- arquivo: `backend/src/main/resources/application.yml`
+- banco: `votacao`
+- host: `localhost:1433`
+- usuário: `sa`
+- senha: `SqlServer@123`
+
+## Como rodar o frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Aplicação disponível em:
+
+- `http://localhost:5173`
+
+O frontend consome a API versionada em:
+
+- `http://localhost:8080/api/v1/pautas`
+
+## Endpoints principais
+
+### Criar pauta
+
+`POST /api/v1/pautas`
+
+```json
 {
-    "status": "ABLE_TO_VOTE
-}
-// CPF Nao Ok para votar - retornar 404 no client tb
-{
-    "status": "UNABLE_TO_VOTE
+  "titulo": "Aprovação do balanço anual",
+  "descricao": "Deliberação da assembleia sobre o balanço."
 }
 ```
 
-Exemplos de retorno do serviço
+### Listar pautas
 
-### Tarefa Bônus 2 - Performance
+`GET /api/v1/pautas`
 
-- Imagine que sua aplicação possa ser usada em cenários que existam centenas de
-  milhares de votos. Ela deve se comportar de maneira performática nesses
-  cenários
-- Testes de performance são uma boa maneira de garantir e observar como sua
-  aplicação se comporta
+### Abrir sessão
 
-### Tarefa Bônus 3 - Versionamento da API
+`POST /api/v1/pautas/{pautaId}/sessao`
 
-○ Como você versionaria a API da sua aplicação? Que estratégia usar?
+```json
+{
+  "duracaoSegundos": 120
+}
+```
 
-## O que será analisado
+Se a duração não for enviada, a API usa `60` segundos.
 
-- Simplicidade no design da solução (evitar over engineering)
-- Organização do código
-- Arquitetura do projeto
-- Boas práticas de programação (manutenibilidade, legibilidade etc)
-- Possíveis bugs
-- Tratamento de erros e exceções
-- Explicação breve do porquê das escolhas tomadas durante o desenvolvimento da solução
-- Uso de testes automatizados e ferramentas de qualidade
-- Limpeza do código
-- Documentação do código e da API
-- Logs da aplicação
-- Mensagens e organização dos commits
-- Testes
-- Layout responsivo
+### Registrar voto
 
-## Dicas
+`POST /api/v1/pautas/{pautaId}/votos`
 
-- Teste bem sua solução, evite bugs
+```json
+{
+  "associadoId": "assoc-001",
+  "cpf": "12345678901",
+  "opcao": "SIM"
+}
+```
 
-  Observações importantes
-- Não inicie o teste sem sanar todas as dúvidas
-- Iremos executar a aplicação para testá-la, cuide com qualquer dependência externa e
-  deixe claro caso haja instruções especiais para execução do mesmo
-  Classificação da informação: Uso Interno
+### Obter resultado
 
+`GET /api/v1/pautas/{pautaId}/resultado`
 
+## Fluxo rápido de validação
 
-# desafio-votacao
+Depois de subir backend e frontend, valide este fluxo:
+
+1. Cadastrar uma pauta.
+2. Abrir uma sessão para a pauta.
+3. Registrar um voto `SIM` ou `NÃO`.
+4. Consultar o resultado da pauta.
+5. Tentar votar novamente com o mesmo associado para validar a restrição.
+6. Aguardar o encerramento da sessão e tentar votar para validar o bloqueio.
+
+Observação sobre o bônus de CPF:
+
+- o client fake é aleatório
+- o mesmo CPF pode ser aceito, rejeitado como inválido ou marcado como inapto em chamadas diferentes
+
+## Instruções de teste
+
+### Testes unitários e integrados do backend
+
+#### PowerShell ou CMD
+
+```powershell
+cd backend
+mvn.cmd test
+```
+
+#### Git Bash
+
+```bash
+cd backend
+mvn.cmd test
+```
+
+### Validação de qualidade do backend
+
+#### PowerShell ou CMD
+
+```powershell
+cd backend
+mvn.cmd checkstyle:check
+```
+
+#### Git Bash
+
+```bash
+cd backend
+mvn.cmd checkstyle:check
+```
+
+### Validação de qualidade do frontend
+
+```bash
+cd frontend
+npm install
+npm run lint
+```
+
+### Build do frontend
+
+```bash
+cd frontend
+npm run build
+```
+
+## Observações sobre os bônus implementados
+
+### Bônus 1 - integração com sistema externo
+
+- Foi criado um facade fake em `backend/src/main/java/com/cooperativa/votacao/client`
+- O client recebe o CPF e responde aleatoriamente
+- Regras implementadas:
+  - CPF inválido: `404 Not Found`
+  - CPF válido + apto: `ABLE_TO_VOTE`
+  - CPF válido + inapto: `UNABLE_TO_VOTE`, refletido na API como `422 Unprocessable Entity`
+- O mesmo CPF pode ter respostas diferentes em chamadas diferentes, conforme o enunciado
+
+### Bônus 2 - performance
+
+- Restrição única por pauta e associado no banco
+- Índices para busca por pauta e sessão
+- Apuração usando `group by` no banco
+
+### Bônus 3 - versionamento da API
+
+- Estratégia adotada: versionamento por URL
+- Versão principal: `/api/v1`
+- Mantida compatibilidade com `/api` para transição
